@@ -1,0 +1,42 @@
+name: Evals
+
+# The release gate: runs the example app on evals/cases.yaml with the real
+# model, and fails when the score drops. Make "evals" a required check so a
+# failing change can't merge.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip when only text files changed
+        id: changes
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git -c core.quotePath=false diff --name-only --no-renames "origin/${{ github.base_ref }}...HEAD")
+          if ! echo "$changed" | grep -qvE '\.(md|txt|rst)$'; then
+            echo "Only text files changed, so no LLM calls are needed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: astral-sh/setup-uv@v3
+        if: steps.changes.outputs.skip != 'true'
+      - run: uv sync --frozen
+        if: steps.changes.outputs.skip != 'true'
+      - name: Run the evals
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Add ANTHROPIC_API_KEY under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          uv run python -m agent_template.evals --app examples.job_finder.app
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
