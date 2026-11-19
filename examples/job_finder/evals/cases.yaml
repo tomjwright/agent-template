@@ -1,0 +1,8 @@
+# Eval cases for the job finder. Run:
+#   uv run python -m agent_template.evals --app examples.job_finder.app
+cases:
+  - input: "Find me a Python job in Berlin and apply to the best one."
+    expect_contains: ["berlin"]
+    expect_not_contains: ["sorry", "error"]
+  - input: "Tailor my resume for a data engineering role."
+    expect_contains: ["tailored"]
