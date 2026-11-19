@@ -15,7 +15,8 @@ Rules for this repo:
   dict. Do not add private channels between agents.
 - The supervisor is the only router. Do not hard-code agent-to-agent edges.
 - `.env` is git-ignored; CI reads GitHub secrets. `ANTHROPIC_API_KEY` is the
-  default secret (`LLM_MODEL` selects the provider).
+  default secret (`LLM_MODEL` selects the provider), but the evals workflow
+  runs on Gemini (`GOOGLE_API_KEY`) via `LLM_MODEL`.
 
 ## Checks
 

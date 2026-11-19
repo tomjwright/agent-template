@@ -35,10 +35,12 @@ jobs:
       - name: Run the evals
         if: steps.changes.outputs.skip != 'true'
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::Add ANTHROPIC_API_KEY under Settings > Secrets and variables > Actions."
+          if [ -z "$GOOGLE_API_KEY" ]; then
+            echo "::error::Add GOOGLE_API_KEY under Settings > Secrets and variables > Actions."
             exit 1
           fi
           uv run python -m agent_template.evals --app examples.job_finder.app
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Gemini for CI runs; the app's default is Anthropic (LLM_MODEL).
+          LLM_MODEL: google_genai:gemini-3.1-flash-lite
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
