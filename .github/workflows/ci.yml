@@ -37,6 +37,9 @@ jobs:
 
   secrets-scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks-action lists PR commits to scan them
     steps:
       - uses: actions/checkout@v4
         with:
