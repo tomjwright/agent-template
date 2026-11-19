@@ -99,7 +99,7 @@ class Orchestrator:
         transcript = [
             {"agent": m.name or "user", "text": _text(m)}
             for m in state["messages"]
-            if isinstance(m, (HumanMessage, AIMessage))
+            if isinstance(m, HumanMessage | AIMessage)
         ]
         return RunResult(
             task=task,
