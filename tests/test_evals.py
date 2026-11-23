@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from agent_template.evals import Case, load_cases, run_cases
 
 
@@ -35,3 +38,10 @@ def test_load_cases(tmp_path: Path) -> None:
     assert len(cases) == 2
     assert cases[0].expect_contains == ["hello"]
     assert cases[1].expect_not_contains == ["hi"]
+
+
+def test_load_cases_rejects_unknown_keys(tmp_path: Path) -> None:
+    path = tmp_path / "cases.yaml"
+    path.write_text("cases:\n  - input: hi\n    expect_contain: [hello]\n")
+    with pytest.raises(ValidationError, match="expect_contain"):
+        load_cases(path)
