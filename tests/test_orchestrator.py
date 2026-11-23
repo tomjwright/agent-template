@@ -1,5 +1,6 @@
 """Orchestrator routing, tested with fake models — no LLM calls."""
 
+import re
 from typing import Any
 
 import pytest
@@ -150,6 +151,18 @@ def test_resume_finishes_a_run_that_crashed() -> None:
     result = orchestrator.resume("t-1")
     assert result.output == "done after restart"
     assert result.steps == 2  # the supervisor's first step was not repeated
+
+
+def test_a_crashed_run_reports_its_generated_thread_id() -> None:
+    model = CrashOnceModel(messages=iter([AIMessage(content="done after restart")]))
+    model.routes = [Route(next="WorkerAgent", reason="work"), Route(next=FINISH, reason="done")]
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    with pytest.raises(RuntimeError, match="process died") as crash:
+        orchestrator.run("do something")
+    found = re.search(r"resume\('([^']+)'\)", "\n".join(crash.value.__notes__))
+    assert found
+    thread_id = found.group(1)
+    assert orchestrator.resume(thread_id).output == "done after restart"
 
 
 def test_resume_unknown_thread_raises() -> None:

@@ -100,16 +100,20 @@ class Orchestrator:
         """
         thread_id = thread_id or str(uuid4())
         brief = task if not data else f"{task}\n\nContext:\n{data}"
-        state = self.graph.invoke(
-            {
-                "task": task,
-                "messages": [HumanMessage(content=brief)],
-                "data": data or {},
-                "current_agent": "",
-                "steps": 0,
-            },
-            config=_config(thread_id),
-        )
+        try:
+            state = self.graph.invoke(
+                {
+                    "task": task,
+                    "messages": [HumanMessage(content=brief)],
+                    "data": data or {},
+                    "current_agent": "",
+                    "steps": 0,
+                },
+                config=_config(thread_id),
+            )
+        except Exception as error:
+            error.add_note(f"Resume this run with Orchestrator.resume({thread_id!r}).")
+            raise
         return _result(thread_id, state)
 
     def resume(self, thread_id: str) -> RunResult:
