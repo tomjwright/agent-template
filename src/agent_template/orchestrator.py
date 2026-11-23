@@ -139,7 +139,10 @@ class Orchestrator:
 
     def _pick_agent(self, state: AgentState) -> Route:
         roster = "\n".join(f"- {a.name}: {a.description}" for a in self.agents.values())
-        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in state["messages"][-20:])
+        # Leave out the supervisor's own handoffs, so they don't push the task
+        # out of the 20-message window.
+        messages = [m for m in state["messages"] if m.name != "supervisor"]
+        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in messages[-20:])
         prompt = ROUTER_PROMPT.format(roster=roster, conversation=conversation, finish=FINISH)
         structured = self.model.with_structured_output(Route)
         route = cast(Route, structured.invoke(prompt))

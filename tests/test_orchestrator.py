@@ -102,3 +102,4 @@ def test_every_agent_turn_starts_from_a_user_role_message() -> None:
     assert [type(m) for m in model.last_messages] == [HumanMessage, HumanMessage]
     assert model.last_messages[1].content == "ApplyAgent, over to you: apply to the best one"
     assert result.output == "applied"
+    assert "over to you" not in model.seen_prompts[-1]
