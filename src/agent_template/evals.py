@@ -18,17 +18,19 @@ import argparse
 import importlib
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass
-class Case:
+class Case(BaseModel):
+    # A typo in cases.yaml (e.g. `expect_contain`) must fail, not be ignored.
+    model_config = ConfigDict(extra="forbid")
+
     input: str
-    expect_contains: list[str] = field(default_factory=list)
-    expect_not_contains: list[str] = field(default_factory=list)
+    expect_contains: list[str] = Field(default_factory=list)
+    expect_not_contains: list[str] = Field(default_factory=list)
 
     def check(self, output: str) -> list[str]:
         """The reasons this output fails, or an empty list when it passes."""
@@ -38,11 +40,10 @@ class Case:
         return failures
 
 
-@dataclass
-class EvalReport:
+class EvalReport(BaseModel):
     passed: int
     total: int
-    failures: list[tuple[Case, list[str]]] = field(default_factory=list)
+    failures: list[tuple[Case, list[str]]] = Field(default_factory=list)
 
     @property
     def score(self) -> float:

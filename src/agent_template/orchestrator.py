@@ -13,7 +13,6 @@ router can't run forever.
 """
 
 from collections.abc import Hashable, Sequence
-from dataclasses import dataclass, field
 from typing import Any, cast
 
 from langchain_core.language_models import BaseChatModel
@@ -50,12 +49,13 @@ task is complete or cannot proceed. Never pick the same agent twice in a row
 unless it is still doing useful work."""
 
 
-@dataclass
-class RunResult:
+class RunResult(BaseModel):
+    """What one run produced: the final answer plus the full transcript."""
+
     task: str
     output: str
     steps: int
-    transcript: list[dict[str, str]] = field(default_factory=list)
+    transcript: list[dict[str, str]] = Field(default_factory=list)
 
 
 class Orchestrator:
