@@ -10,20 +10,26 @@ The supervisor is an LLM call that reads the conversation and picks the next
 agent (or FINISH). Each agent is a `create_agent` subgraph: it may call its
 tools in a loop, then returns control. `max_steps` caps the loop so a confused
 router can't run forever.
+
+Every run has its own `thread_id`, the key its checkpoints are saved under, so
+concurrent runs never share state. Pass a result's `thread_id` back to `run` to
+continue that conversation, or to `resume` to finish a run that crashed.
 """
 
 from collections.abc import Hashable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
+from uuid import uuid4
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
-from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
 from agent_template.agents import Agent
+from agent_template.checkpoint import default_checkpointer
 from agent_template.llm import chat_model
 from agent_template.state import AgentState
 
@@ -53,6 +59,7 @@ unless it is still doing useful work."""
 @dataclass
 class RunResult:
     task: str
+    thread_id: str
     output: str
     steps: int
     transcript: list[dict[str, str]] = field(default_factory=list)
@@ -74,7 +81,7 @@ class Orchestrator:
         self.agents = {a.name: a for a in agents}
         self.model = model or chat_model()
         self.max_steps = max_steps
-        self.checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
+        self.checkpointer = checkpointer if checkpointer is not None else default_checkpointer()
         self._graph: CompiledStateGraph[Any, Any, Any, Any] | None = None
 
     @property
@@ -83,8 +90,15 @@ class Orchestrator:
             self._graph = self._build()
         return self._graph
 
-    def run(self, task: str, data: dict[str, Any] | None = None) -> RunResult:
-        """Run the system on `task`. `data` seeds the shared state dict."""
+    def run(
+        self, task: str, data: dict[str, Any] | None = None, thread_id: str | None = None
+    ) -> RunResult:
+        """Run the system on `task`. `data` seeds the shared state dict.
+
+        Without `thread_id` this starts a new conversation with a fresh id.
+        With one, `task` is added to that conversation's thread.
+        """
+        thread_id = thread_id or str(uuid4())
         brief = task if not data else f"{task}\n\nContext:\n{data}"
         state = self.graph.invoke(
             {
@@ -94,19 +108,17 @@ class Orchestrator:
                 "current_agent": "",
                 "steps": 0,
             },
-            config={"configurable": {"thread_id": "run"}},
+            config=_config(thread_id),
         )
-        transcript = [
-            {"agent": m.name or "user", "text": _text(m)}
-            for m in state["messages"]
-            if isinstance(m, HumanMessage | AIMessage)
-        ]
-        return RunResult(
-            task=task,
-            output=_last_agent_text(state["messages"]),
-            steps=state["steps"],
-            transcript=transcript,
-        )
+        return _result(thread_id, state)
+
+    def resume(self, thread_id: str) -> RunResult:
+        """Finish a run that stopped part-way (crash, restart) from its last checkpoint."""
+        config = _config(thread_id)
+        if not self.graph.get_state(config).values:
+            raise ValueError(f"no run with thread_id {thread_id!r}")
+        state = self.graph.invoke(None, config=config)
+        return _result(thread_id, state)
 
     # -- graph construction -------------------------------------------------
 
@@ -153,7 +165,29 @@ def _text(message: Any) -> str:
 
 
 def _last_agent_text(messages: list[Any]) -> str:
+    """The latest agent reply to the latest task, or "" if no agent answered it."""
     for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return ""
         if isinstance(message, AIMessage):
             return _text(message)
     return ""
+
+
+def _config(thread_id: str) -> RunnableConfig:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _result(thread_id: str, state: dict[str, Any]) -> RunResult:
+    transcript = [
+        {"agent": m.name or "user", "text": _text(m)}
+        for m in state["messages"]
+        if isinstance(m, HumanMessage | AIMessage)
+    ]
+    return RunResult(
+        task=state["task"],
+        thread_id=thread_id,
+        output=_last_agent_text(state["messages"]),
+        steps=state["steps"],
+        transcript=transcript,
+    )
