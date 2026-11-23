@@ -53,8 +53,9 @@ uv run python -m agent_template.evals --app examples.job_finder.app   # needs AP
 ## Architecture in one line
 
 Task → supervisor (LLM router) → agent subgraph (model + tools loop) →
-supervisor → … → FINISH; every message lands on one shared thread, runs are
-recorded in SQLite, logs are JSON with trace IDs.
+supervisor → … → FINISH; every message lands on one shared thread (one
+`thread_id` per conversation, checkpointed to Postgres when `DATABASE_URL` is
+set), runs are recorded in SQLite, logs are JSON with trace IDs.
 
 ## Gotchas
 
@@ -63,5 +64,8 @@ recorded in SQLite, logs are JSON with trace IDs.
 - Tests never call an LLM: fake models come from
   `langchain_core.language_models.fake_chat_models`; script supervisor routes
   with `FakeModel.routes` in `tests/conftest.py`.
+- Postgres tests skip unless `TEST_DATABASE_URL` is set; CI sets it. Locally:
+  `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:17`, then
+  `TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres uv run pytest`.
 - The supervisor picks agents by `description`, not name — vague descriptions
   cause misrouting.

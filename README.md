@@ -31,7 +31,8 @@ uv run python -m agent_template run --app examples.job_finder.app \
 ```
 src/agent_template/
   agents.py        Agent: name, description, system prompt, tools -> subgraph
-  orchestrator.py  supervisor node + agent nodes, step cap, RunResult
+  orchestrator.py  supervisor node + agent nodes, step cap, RunResult, resume
+  checkpoint.py    run checkpoints: Postgres when DATABASE_URL is set, else memory
   state.py         shared AgentState (messages, data, routing fields)
   llm.py           provider-agnostic chat model from LLM_MODEL
   cli.py           `run` an app, `history` of past runs

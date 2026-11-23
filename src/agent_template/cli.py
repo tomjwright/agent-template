@@ -25,7 +25,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     setup_logging()
     setup_tracing()
     orchestrator = _load_app(args.app)
-    result = orchestrator.run(args.task)
+    result = orchestrator.run(args.task, thread_id=args.thread_id)
     run_id = RunStore().record(
         app=args.app,
         task=args.task,
@@ -34,7 +34,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         transcript=result.transcript,
     )
     print(result.output)
-    log.info("run %s recorded (%d steps)", run_id, result.steps)
+    log.info("run %s recorded (%d steps, thread %s)", run_id, result.steps, result.thread_id)
     return 0
 
 
@@ -51,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     run = sub.add_parser("run", help="run an app on a task")
     run.add_argument("--app", required=True, help="app module, e.g. examples.job_finder.app")
     run.add_argument("task")
+    run.add_argument(
+        "--thread-id", help="continue this conversation (needs DATABASE_URL to outlive a process)"
+    )
     run.set_defaults(func=cmd_run)
 
     hist = sub.add_parser("history", help="list recent runs")

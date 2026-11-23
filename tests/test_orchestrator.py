@@ -1,5 +1,6 @@
 """Orchestrator routing, tested with fake models — no LLM calls."""
 
+import re
 from typing import Any
 
 import pytest
@@ -81,6 +82,101 @@ def test_router_sees_agent_descriptions() -> None:
     prompt = model.seen_prompts[0]
     assert "WorkerAgent" in prompt and "files paperwork" in prompt
     assert "file the forms" in prompt
+
+
+def test_each_run_gets_its_own_thread() -> None:
+    model = make_model(
+        replies=["first answer", "second answer"],
+        routes=[
+            Route(next="WorkerAgent", reason="a"),
+            Route(next=FINISH, reason="done"),
+            Route(next="WorkerAgent", reason="b"),
+            Route(next=FINISH, reason="done"),
+        ],
+    )
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    first = orchestrator.run("task one")
+    second = orchestrator.run("task two")
+    assert first.thread_id != second.thread_id
+    assert [t["text"] for t in second.transcript if t["agent"] != "supervisor"] == [
+        "task two",
+        "second answer",
+    ]
+
+
+def test_same_thread_id_continues_the_conversation() -> None:
+    model = make_model(
+        replies=["first answer", "second answer"],
+        routes=[
+            Route(next="WorkerAgent", reason="a"),
+            Route(next=FINISH, reason="done"),
+            Route(next="WorkerAgent", reason="b"),
+            Route(next=FINISH, reason="done"),
+        ],
+    )
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    first = orchestrator.run("task one")
+    second = orchestrator.run("follow up", thread_id=first.thread_id)
+    assert second.thread_id == first.thread_id
+    texts = [t["text"] for t in second.transcript if t["agent"] != "supervisor"]
+    assert texts == ["task one", "first answer", "follow up", "second answer"]
+    assert second.steps == 2  # the step cap counts per run, not per conversation
+
+
+def test_follow_up_that_no_agent_answers_has_empty_output() -> None:
+    model = make_model(
+        replies=["first answer"],
+        routes=[
+            Route(next="WorkerAgent", reason="a"),
+            Route(next=FINISH, reason="done"),
+            Route(next=FINISH, reason="nothing to do"),
+        ],
+    )
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    first = orchestrator.run("task one")
+    second = orchestrator.run("follow up", thread_id=first.thread_id)
+    assert second.output == ""  # not the previous turn's answer
+
+
+class CrashOnceModel(FakeModel):
+    """Raises on its first reply, like a process dying mid-run."""
+
+    crashed: bool = False
+
+    def _generate(self, *args: Any, **kwargs: Any) -> Any:
+        if not self.crashed:
+            self.crashed = True
+            raise RuntimeError("process died")
+        return super()._generate(*args, **kwargs)
+
+
+def test_resume_finishes_a_run_that_crashed() -> None:
+    model = CrashOnceModel(messages=iter([AIMessage(content="done after restart")]))
+    model.routes = [Route(next="WorkerAgent", reason="work"), Route(next=FINISH, reason="done")]
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    with pytest.raises(RuntimeError, match="process died"):
+        orchestrator.run("do something", thread_id="t-1")
+    result = orchestrator.resume("t-1")
+    assert result.output == "done after restart"
+    assert result.steps == 2  # the supervisor's first step was not repeated
+
+
+def test_a_crashed_run_reports_its_generated_thread_id() -> None:
+    model = CrashOnceModel(messages=iter([AIMessage(content="done after restart")]))
+    model.routes = [Route(next="WorkerAgent", reason="work"), Route(next=FINISH, reason="done")]
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    with pytest.raises(RuntimeError, match="process died") as crash:
+        orchestrator.run("do something")
+    found = re.search(r"resume\('([^']+)'\)", "\n".join(crash.value.__notes__))
+    assert found
+    thread_id = found.group(1)
+    assert orchestrator.resume(thread_id).output == "done after restart"
+
+
+def test_resume_unknown_thread_raises() -> None:
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=make_model([]))
+    with pytest.raises(ValueError, match="no run with thread_id"):
+        orchestrator.resume("missing")
 
 
 class RecordingModel(FakeModel):
