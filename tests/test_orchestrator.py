@@ -5,10 +5,12 @@ from typing import Any
 
 import pytest
 from conftest import FakeModel
+from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from pydantic import Field
+from pydantic import Field, ValidationError
 
+import agent_template.orchestrator as orchestrator_module
 from agent_template.agents import Agent
 from agent_template.orchestrator import FINISH, Orchestrator, Route
 
@@ -49,17 +51,72 @@ def test_supervisor_routes_to_named_agent_then_finishes() -> None:
     result = orchestrator.run("do something")
     assert result.output == "I did the work."
     assert result.steps == 2
+    assert result.status == "completed"
     assert result.model_dump()["transcript"][-1] == {
         "agent": "WorkerAgent",
         "text": "I did the work.",
     }
 
 
-def test_unknown_agent_name_finishes() -> None:
-    model = make_model(replies=[], routes=[Route(next="NoSuchAgent", reason="lost")])
+def test_route_schema_only_accepts_registered_agents() -> None:
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=make_model([]))
+    schema = orchestrator.route_schema
+    assert schema.model_json_schema()["properties"]["next"]["enum"] == ["WorkerAgent", FINISH]
+    schema(next="WorkerAgent", reason="ok")
+    with pytest.raises(ValidationError):
+        schema(next="job_search", reason="typo")
+
+
+def test_invalid_route_is_retried_with_the_valid_names() -> None:
+    model = make_model(
+        replies=["done"],
+        routes=[
+            Route(next="job_search", reason="typo"),
+            Route(next="WorkerAgent", reason="fixed"),
+            Route(next=FINISH, reason="done"),
+        ],
+    )
     orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
     result = orchestrator.run("do something")
+    assert result.status == "completed"
+    assert result.output == "done"
+    assert "'job_search', is not a valid choice" in model.seen_prompts[1]
+    assert "exactly one of: WorkerAgent, FINISH" in model.seen_prompts[1]
+
+
+def test_unparseable_route_is_retried() -> None:
+    model = make_model(
+        replies=["done"],
+        routes=[
+            OutputParserException("not JSON"),
+            Route(next="WorkerAgent", reason="fixed"),
+            Route(next=FINISH, reason="done"),
+        ],
+    )
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model)
+    assert orchestrator.run("do something").status == "completed"
+
+
+class CountingCounter:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def add(self, amount: int, attributes: dict[str, Any]) -> None:
+        self.calls.append(attributes)
+
+
+def test_two_invalid_routes_fail_the_run(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    counter = CountingCounter()
+    monkeypatch.setattr(orchestrator_module, "INVALID_ROUTES", counter)
+    routes = [Route(next="NoSuchAgent", reason="lost"), Route(next="NoSuchAgent", reason="lost")]
+    orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=make_model([], routes))
+    result = orchestrator.run("do something")
+    assert result.status == "failed"
     assert result.steps == 1
+    assert counter.calls == [{"attempt": 1}, {"attempt": 2}]
+    assert "router gave an invalid route: 'NoSuchAgent' (attempt 2 of 2)" in caplog.text
 
 
 def test_step_cap_stops_a_looping_router() -> None:
@@ -70,6 +127,7 @@ def test_step_cap_stops_a_looping_router() -> None:
     orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=model, max_steps=3)
     result = orchestrator.run("do something")
     assert result.steps == 4  # one past the cap triggers FINISH
+    assert result.status == "step_cap_hit"
 
 
 def test_router_sees_agent_descriptions() -> None:

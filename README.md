@@ -8,7 +8,8 @@ as Python classes, and the orchestrator routes work between them.
   loop before handing control back.
 - **Supervisor routing.** A LangGraph supervisor reads the conversation and
   picks the next agent (or FINISH). Agents keep their own tools; the router
-  only sees names and descriptions.
+  only sees names and descriptions. Its answer is limited to the registered
+  names; a run whose router misses twice ends with `status="failed"`.
 - **Shared state.** One message thread plus a `data` dict for structured
   hand-off values.
 - **Provider-agnostic.** `LLM_MODEL` is a `provider:model` spec
@@ -31,7 +32,7 @@ uv run python -m agent_template run --app examples.job_finder.app \
 ```
 src/agent_template/
   agents.py        Agent: name, description, system prompt, tools -> subgraph
-  orchestrator.py  supervisor node + agent nodes, step cap, RunResult, resume
+  orchestrator.py  supervisor node + agent nodes, step cap, route retry, RunResult, resume
   checkpoint.py    run checkpoints: Postgres when DATABASE_URL is set, else memory
   state.py         shared AgentState (messages, data, routing fields)
   llm.py           provider-agnostic chat model from LLM_MODEL

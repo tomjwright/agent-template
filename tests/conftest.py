@@ -8,7 +8,8 @@ class FakeModel(GenericFakeChatModel):
     """A chat model that cycles canned replies and fakes structured output.
 
     `with_structured_output` returns an object whose `.invoke` pops the next
-    Route from `routes`, so tests can script the supervisor's decisions.
+    Route from `routes` (or raises it, if it is an exception), so tests can
+    script the supervisor's decisions.
     """
 
     routes: list[Any] = Field(default_factory=list)
@@ -21,7 +22,10 @@ class FakeModel(GenericFakeChatModel):
             def invoke(self, prompt: Any) -> Any:
                 model.seen_prompts.append(str(prompt))
                 if model.routes:
-                    return model.routes.pop(0)
+                    route = model.routes.pop(0)
+                    if isinstance(route, Exception):
+                        raise route
+                    return route
                 raise AssertionError("FakeModel ran out of routes")
 
         return Structured()

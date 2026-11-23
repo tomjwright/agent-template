@@ -34,8 +34,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         transcript=result.transcript,
     )
     print(result.output)
-    log.info("run %s recorded (%d steps, thread %s)", run_id, result.steps, result.thread_id)
-    return 0
+    log.info(
+        "run %s %s (%d steps, thread %s)", run_id, result.status, result.steps, result.thread_id
+    )
+    return 1 if result.status == "failed" else 0
 
 
 def cmd_history(args: argparse.Namespace) -> int:

@@ -2,7 +2,7 @@
 
 Every log line is one JSON object carrying the current trace and span IDs, so
 a log line can be matched to its span in Jaeger (local) or Langfuse (hosted).
-Traces only export when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+Traces and metrics only export when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 """
 
 import json
@@ -10,8 +10,11 @@ import logging
 import os
 from datetime import UTC, datetime
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -45,6 +48,9 @@ def setup_tracing(service_name: str = "agent-template") -> None:
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return
-    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(provider)
+    reader = PeriodicExportingMetricReader(OTLPMetricExporter())
+    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
