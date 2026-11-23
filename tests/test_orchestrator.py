@@ -45,6 +45,10 @@ def test_supervisor_routes_to_named_agent_then_finishes() -> None:
     result = orchestrator.run("do something")
     assert result.output == "I did the work."
     assert result.steps == 2
+    assert result.model_dump()["transcript"][-1] == {
+        "agent": "WorkerAgent",
+        "text": "I did the work.",
+    }
 
 
 def test_unknown_agent_name_finishes() -> None:
