@@ -17,7 +17,6 @@ continue that conversation, or to `resume` to finish a run that crashed.
 """
 
 from collections.abc import Hashable, Sequence
-from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import uuid4
 
@@ -56,13 +55,14 @@ task is complete or cannot proceed. Never pick the same agent twice in a row
 unless it is still doing useful work."""
 
 
-@dataclass
-class RunResult:
+class RunResult(BaseModel):
+    """What one run produced: the final answer plus the full transcript."""
+
     task: str
     thread_id: str
     output: str
     steps: int
-    transcript: list[dict[str, str]] = field(default_factory=list)
+    transcript: list[dict[str, str]] = Field(default_factory=list)
 
 
 class Orchestrator:
@@ -144,11 +144,21 @@ class Orchestrator:
         if steps > self.max_steps:
             return {"current_agent": FINISH, "steps": steps}
         route = self._pick_agent(state)
-        return {"current_agent": route.next, "steps": steps}
+        if route.next == FINISH:
+            return {"current_agent": FINISH, "steps": steps}
+        # The handoff is a user-role turn, so the agent's model never receives a
+        # thread that ends with another agent's reply (Gemini rejects that).
+        handoff = HumanMessage(
+            content=f"{route.next}, over to you: {route.reason}", name="supervisor"
+        )
+        return {"current_agent": route.next, "steps": steps, "messages": [handoff]}
 
     def _pick_agent(self, state: AgentState) -> Route:
         roster = "\n".join(f"- {a.name}: {a.description}" for a in self.agents.values())
-        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in state["messages"][-20:])
+        # Leave out the supervisor's own handoffs, so they don't push the task
+        # out of the 20-message window.
+        messages = [m for m in state["messages"] if m.name != "supervisor"]
+        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in messages[-20:])
         prompt = ROUTER_PROMPT.format(roster=roster, conversation=conversation, finish=FINISH)
         structured = self.model.with_structured_output(Route)
         route = cast(Route, structured.invoke(prompt))

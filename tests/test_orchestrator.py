@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 from conftest import FakeModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from pydantic import Field
 
 from agent_template.agents import Agent
 from agent_template.orchestrator import FINISH, Orchestrator, Route
@@ -48,6 +49,10 @@ def test_supervisor_routes_to_named_agent_then_finishes() -> None:
     result = orchestrator.run("do something")
     assert result.output == "I did the work."
     assert result.steps == 2
+    assert result.model_dump()["transcript"][-1] == {
+        "agent": "WorkerAgent",
+        "text": "I did the work.",
+    }
 
 
 def test_unknown_agent_name_finishes() -> None:
@@ -93,7 +98,10 @@ def test_each_run_gets_its_own_thread() -> None:
     first = orchestrator.run("task one")
     second = orchestrator.run("task two")
     assert first.thread_id != second.thread_id
-    assert [t["text"] for t in second.transcript] == ["task two", "second answer"]
+    assert [t["text"] for t in second.transcript if t["agent"] != "supervisor"] == [
+        "task two",
+        "second answer",
+    ]
 
 
 def test_same_thread_id_continues_the_conversation() -> None:
@@ -110,7 +118,7 @@ def test_same_thread_id_continues_the_conversation() -> None:
     first = orchestrator.run("task one")
     second = orchestrator.run("follow up", thread_id=first.thread_id)
     assert second.thread_id == first.thread_id
-    texts = [t["text"] for t in second.transcript]
+    texts = [t["text"] for t in second.transcript if t["agent"] != "supervisor"]
     assert texts == ["task one", "first answer", "follow up", "second answer"]
     assert second.steps == 2  # the step cap counts per run, not per conversation
 
@@ -169,3 +177,29 @@ def test_resume_unknown_thread_raises() -> None:
     orchestrator = Orchestrator([echo_agent("WorkerAgent")], model=make_model([]))
     with pytest.raises(ValueError, match="no run with thread_id"):
         orchestrator.resume("missing")
+
+
+class RecordingModel(FakeModel):
+    """Remembers the last message of every request it receives."""
+
+    last_messages: list[BaseMessage] = Field(default_factory=list)
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> Any:
+        self.last_messages.append(messages[-1])
+        return super()._generate(messages, *args, **kwargs)
+
+
+def test_every_agent_turn_starts_from_a_user_role_message() -> None:
+    replies = [AIMessage(content="found"), AIMessage(content="applied")]
+    model = RecordingModel(messages=iter(replies))
+    model.routes = [
+        Route(next="FinderAgent", reason="find jobs"),
+        Route(next="ApplyAgent", reason="apply to the best one"),
+        Route(next=FINISH, reason="done"),
+    ]
+    orchestrator = Orchestrator([echo_agent("FinderAgent"), echo_agent("ApplyAgent")], model=model)
+    result = orchestrator.run("find and apply")
+    assert [type(m) for m in model.last_messages] == [HumanMessage, HumanMessage]
+    assert model.last_messages[1].content == "ApplyAgent, over to you: apply to the best one"
+    assert result.output == "applied"
+    assert "over to you" not in model.seen_prompts[-1]

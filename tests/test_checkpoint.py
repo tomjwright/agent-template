@@ -47,7 +47,7 @@ def test_another_replica_continues_the_conversation() -> None:
     )
     second = second_server.run("follow up", thread_id=first.thread_id)
 
-    texts = [t["text"] for t in second.transcript]
+    texts = [t["text"] for t in second.transcript if t["agent"] != "supervisor"]
     assert texts == ["task one", "first answer", "follow up", "second answer"]
 
 
@@ -57,7 +57,10 @@ def test_threads_do_not_share_state() -> None:
     b = server("answer b", [Route(next="WorkerAgent", reason="b"), Route(next=FINISH, reason="x")])
     result_a = a.run("user a's task")
     result_b = b.run("user b's task")
-    assert [t["text"] for t in result_b.transcript] == ["user b's task", "answer b"]
+    assert [t["text"] for t in result_b.transcript if t["agent"] != "supervisor"] == [
+        "user b's task",
+        "answer b",
+    ]
     assert result_a.thread_id != result_b.thread_id
 
 
