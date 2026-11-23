@@ -1,9 +1,12 @@
 """Orchestrator routing, tested with fake models — no LLM calls."""
 
+from typing import Any
+
 import pytest
 from conftest import FakeModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from pydantic import Field
 
 from agent_template.agents import Agent
 from agent_template.orchestrator import FINISH, Orchestrator, Route
@@ -78,3 +81,29 @@ def test_router_sees_agent_descriptions() -> None:
     prompt = model.seen_prompts[0]
     assert "WorkerAgent" in prompt and "files paperwork" in prompt
     assert "file the forms" in prompt
+
+
+class RecordingModel(FakeModel):
+    """Remembers the last message of every request it receives."""
+
+    last_messages: list[BaseMessage] = Field(default_factory=list)
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> Any:
+        self.last_messages.append(messages[-1])
+        return super()._generate(messages, *args, **kwargs)
+
+
+def test_every_agent_turn_starts_from_a_user_role_message() -> None:
+    replies = [AIMessage(content="found"), AIMessage(content="applied")]
+    model = RecordingModel(messages=iter(replies))
+    model.routes = [
+        Route(next="FinderAgent", reason="find jobs"),
+        Route(next="ApplyAgent", reason="apply to the best one"),
+        Route(next=FINISH, reason="done"),
+    ]
+    orchestrator = Orchestrator([echo_agent("FinderAgent"), echo_agent("ApplyAgent")], model=model)
+    result = orchestrator.run("find and apply")
+    assert [type(m) for m in model.last_messages] == [HumanMessage, HumanMessage]
+    assert model.last_messages[1].content == "ApplyAgent, over to you: apply to the best one"
+    assert result.output == "applied"
+    assert "over to you" not in model.seen_prompts[-1]

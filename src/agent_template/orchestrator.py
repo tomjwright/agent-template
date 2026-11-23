@@ -128,11 +128,21 @@ class Orchestrator:
         if steps > self.max_steps:
             return {"current_agent": FINISH, "steps": steps}
         route = self._pick_agent(state)
-        return {"current_agent": route.next, "steps": steps}
+        if route.next == FINISH:
+            return {"current_agent": FINISH, "steps": steps}
+        # The handoff is a user-role turn, so the agent's model never receives a
+        # thread that ends with another agent's reply (Gemini rejects that).
+        handoff = HumanMessage(
+            content=f"{route.next}, over to you: {route.reason}", name="supervisor"
+        )
+        return {"current_agent": route.next, "steps": steps, "messages": [handoff]}
 
     def _pick_agent(self, state: AgentState) -> Route:
         roster = "\n".join(f"- {a.name}: {a.description}" for a in self.agents.values())
-        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in state["messages"][-20:])
+        # Leave out the supervisor's own handoffs, so they don't push the task
+        # out of the 20-message window.
+        messages = [m for m in state["messages"] if m.name != "supervisor"]
+        conversation = "\n".join(f"{m.type}: {_text(m)}" for m in messages[-20:])
         prompt = ROUTER_PROMPT.format(roster=roster, conversation=conversation, finish=FINISH)
         structured = self.model.with_structured_output(Route)
         route = cast(Route, structured.invoke(prompt))
