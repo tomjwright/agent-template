@@ -10,7 +10,7 @@ import logging
 import sys
 from typing import Any
 
-from agent_template.store import RunStore
+from agent_template.store import open_run_store
 from agent_template.telemetry import setup_logging, setup_tracing
 
 log = logging.getLogger(__name__)
@@ -26,7 +26,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     setup_tracing()
     orchestrator = _load_app(args.app)
     result = orchestrator.run(args.task, thread_id=args.thread_id)
-    run_id = RunStore().record(args.app, result, user_id=args.user_id, tenant_id=args.tenant_id)
+    run_id = open_run_store().record(
+        args.app, result, user_id=args.user_id, tenant_id=args.tenant_id
+    )
     print(result.output)
     log.info(
         "run %s %s (%d steps, %d ms, %d+%d tokens, thread %s)",
@@ -42,7 +44,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_history(args: argparse.Namespace) -> int:
-    for row in RunStore().recent(args.limit):
+    for row in open_run_store().recent(args.limit):
         status = row["status"] or "-"
         print(f"[{row['id']}] {row['created_at'][:19]} {status} {row['app']}: {row['task'][:60]}")
     return 0

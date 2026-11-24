@@ -1,9 +1,40 @@
+"""Run history in SQLite, and in Postgres when a test database is set.
+
+The Postgres tests need TEST_DATABASE_URL; see tests/test_checkpoint.py.
+"""
+
+import os
 import sqlite3
 import threading
 from pathlib import Path
 
+import psycopg
+import pytest
+
 from agent_template.orchestrator import RunResult
-from agent_template.store import RunStore
+from agent_template.store import PostgresRunStore, RunStore, open_run_store
+
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
+needs_postgres = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
+
+
+def fresh_database() -> str:
+    """The URL of a new, empty scratch database, so no saved history is dropped."""
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
+        admin.execute("DROP DATABASE IF EXISTS run_store_test WITH (FORCE)")
+        admin.execute("CREATE DATABASE run_store_test")
+    return TEST_DATABASE_URL.rsplit("/", 1)[0] + "/run_store_test"
+
+
+def empty_postgres_store() -> PostgresRunStore:
+    return PostgresRunStore(fresh_database())
+
+
+@pytest.fixture(params=["sqlite", pytest.param("postgres", marks=needs_postgres)])
+def store(request: pytest.FixtureRequest, tmp_path: Path) -> RunStore | PostgresRunStore:
+    if request.param == "postgres":
+        return empty_postgres_store()
+    return RunStore(tmp_path / "runs.db")
 
 
 def run_result(task: str = "task") -> RunResult:
@@ -23,8 +54,7 @@ def run_result(task: str = "task") -> RunResult:
     )
 
 
-def test_record_and_recent(tmp_path: Path) -> None:
-    store = RunStore(tmp_path / "runs.db")
+def test_record_and_recent(store: RunStore | PostgresRunStore) -> None:
     run_id = store.record("app", run_result(), user_id="u1", tenant_id="t1")
     assert run_id == 1
     [row] = store.recent()
@@ -48,11 +78,16 @@ def test_record_and_recent(tmp_path: Path) -> None:
     }
 
 
-def test_recent_orders_newest_first(tmp_path: Path) -> None:
-    store = RunStore(tmp_path / "runs.db")
+def test_recent_orders_newest_first(store: RunStore | PostgresRunStore) -> None:
     store.record("app", run_result("first"))
     store.record("app", run_result("second"))
     assert [r["task"] for r in store.recent()] == ["second", "first"]
+
+
+def test_negative_limit_lists_every_run(store: RunStore | PostgresRunStore) -> None:
+    store.record("app", run_result("first"))
+    store.record("app", run_result("second"))
+    assert len(store.recent(-1)) == 2
 
 
 def test_adds_telemetry_columns_to_an_older_table(tmp_path: Path) -> None:
@@ -95,4 +130,55 @@ def test_processes_can_open_an_older_table_together(tmp_path: Path) -> None:
         opener.start()
     for opener in openers:
         opener.join()
+    assert errors == []
+
+
+def test_sqlite_without_database_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("RUN_DB", str(tmp_path / "runs.db"))
+    store = open_run_store()
+    assert isinstance(store, RunStore)
+    assert store.path == tmp_path / "runs.db"
+
+
+@needs_postgres
+def test_postgres_with_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+    assert isinstance(open_run_store(), PostgresRunStore)
+
+
+@needs_postgres
+def test_postgres_stores_the_transcript_as_json() -> None:
+    url = fresh_database()
+    PostgresRunStore(url).record("app", run_result())
+    with psycopg.connect(url) as conn:
+        row = conn.execute("SELECT transcript->0->>'text' FROM runs").fetchone()
+    assert row == ("hi",)
+
+
+@needs_postgres
+def test_postgres_history_is_in_utc() -> None:
+    url = fresh_database() + "?options=-c%20TimeZone%3DAsia/Singapore"
+    store = PostgresRunStore(url)
+    store.record("app", run_result())
+    [row] = store.recent()
+    assert row["created_at"].endswith("+00:00")
+
+
+@needs_postgres
+def test_replicas_can_create_the_table_together() -> None:
+    url = fresh_database()
+    errors: list[Exception] = []
+
+    def open_store() -> None:
+        try:
+            PostgresRunStore(url).pool.close()
+        except Exception as error:
+            errors.append(error)
+
+    replicas = [threading.Thread(target=open_store) for _ in range(8)]
+    for replica in replicas:
+        replica.start()
+    for replica in replicas:
+        replica.join()
     assert errors == []

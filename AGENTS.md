@@ -55,7 +55,8 @@ uv run python -m agent_template.evals --app examples.job_finder.app   # needs AP
 Task → supervisor (LLM router) → agent subgraph (model + tools loop) →
 supervisor → … → FINISH; every message lands on one shared thread (one
 `thread_id` per conversation, checkpointed to Postgres when `DATABASE_URL` is
-set), runs are recorded in SQLite, logs are JSON with trace IDs.
+set), runs are recorded in Postgres when `DATABASE_URL` is set (else SQLite),
+logs are JSON with trace IDs.
 
 ## Gotchas
 
