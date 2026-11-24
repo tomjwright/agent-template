@@ -25,6 +25,13 @@ def test_cost_adds_up_every_model() -> None:
     assert cost_usd(usage) == 1.3
 
 
+def test_cached_input_is_priced_at_the_cache_rate() -> None:
+    # 200,000 uncached at $1 per million, 800,000 cached at $0.10 per million.
+    usage = tokens(1_000_000, 0)
+    usage["input_token_details"] = {"cache_read": 800_000}
+    assert cost_usd({"claude-haiku-4-5": usage}) == 0.28
+
+
 def test_unpriced_model_has_no_cost() -> None:
     usage = {"claude-haiku-4-5": tokens(10, 10), "some-new-model": tokens(10, 10)}
     assert cost_usd(usage) is None
