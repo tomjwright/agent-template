@@ -19,9 +19,12 @@ import importlib
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+
+from agent_template.orchestrator import RunResult
 
 
 class Case(BaseModel):
@@ -55,20 +58,24 @@ def load_cases(path: Path | str) -> list[Case]:
     return [Case(**c) for c in raw["cases"]]
 
 
-def run_cases(run: Callable[[str], str], cases: list[Case]) -> EvalReport:
+def run_cases(run: Callable[[str], RunResult], cases: list[Case]) -> EvalReport:
+    """A case fails if its run did not complete, even when the output passes the checks."""
     failures: list[tuple[Case, list[str]]] = []
     for case in cases:
-        reasons = case.check(run(case.input))
+        result = run(case.input)
+        reasons = case.check(result.output)
+        if result.status != "completed":
+            reasons.insert(0, f"run {result.status}")
         if reasons:
             failures.append((case, reasons))
     return EvalReport(passed=len(cases) - len(failures), total=len(cases), failures=failures)
 
 
-def _load_runner(app_module: str) -> Callable[[str], str]:
+def _load_runner(app_module: str) -> Callable[[str], RunResult]:
     """`run(task)` for an app module exposing `build_orchestrator`."""
     module = importlib.import_module(app_module)
     orchestrator = module.build_orchestrator()
-    return lambda task: orchestrator.run(task).output
+    return cast(Callable[[str], RunResult], orchestrator.run)
 
 
 def main(argv: list[str] | None = None) -> int:

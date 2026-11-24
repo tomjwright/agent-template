@@ -22,3 +22,4 @@ class AgentState(TypedDict):
     data: Annotated[dict[str, Any], merge_data]
     current_agent: str
     steps: int
+    status: str  # running, completed, failed or step_cap_hit
