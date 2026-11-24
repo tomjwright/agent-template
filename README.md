@@ -15,7 +15,8 @@ as Python classes, and the orchestrator routes work between them.
 - **Provider-agnostic.** `LLM_MODEL` is a `provider:model` spec
   (`anthropic:claude-haiku-4-5` by default); any LangChain provider works.
 - **Checked in.** JSON logs with trace IDs, optional OTLP tracing, SQLite run
-  history, and a YAML-driven eval suite that gates merges in CI.
+  history, and a YAML-driven eval suite that gates merges in CI. Each run row
+  records its status, model, tokens, cost, latency, trace id, user and tenant.
 
 ## Quick start
 
@@ -39,6 +40,7 @@ src/agent_template/
   cli.py           `run` an app, `history` of past runs
   evals.py         run evals/cases.yaml, fail below --min-score
   store.py         SQLite run history
+  pricing.py       model prices for each run's cost_usd
   telemetry.py     JSON logs + optional OTLP tracing
 examples/job_finder/   a complete app: finder, resume improver, applicant
 tests/              offline tests (fake models, no LLM calls)

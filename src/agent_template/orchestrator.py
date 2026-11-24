@@ -23,26 +23,31 @@ continue that conversation, or to `resume` to finish a run that crashed.
 
 import logging
 from collections.abc import Hashable, Sequence
+from time import perf_counter
 from typing import Any, Literal, cast
 from uuid import uuid4
 
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from opentelemetry import metrics
+from opentelemetry import metrics, trace
 from pydantic import BaseModel, Field, ValidationError, create_model
 
 from agent_template.agents import Agent
 from agent_template.checkpoint import default_checkpointer
 from agent_template.llm import chat_model
+from agent_template.pricing import cost_usd
 from agent_template.state import AgentState
 
 FINISH = "FINISH"
 
 log = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 INVALID_ROUTES = metrics.get_meter(__name__).create_counter(
     "router.invalid_routes", description="Router answers that named no registered agent."
 )
@@ -90,6 +95,12 @@ class RunResult(BaseModel):
     output: str
     steps: int
     transcript: list[dict[str, str]] = Field(default_factory=list)
+    model_name: str | None = None  # comma-separated if the run used several
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float | None = None  # None when a model is missing from pricing.py
+    latency_ms: int = 0
+    trace_id: str | None = None  # None unless tracing is set up
 
 
 class Orchestrator:
@@ -128,30 +139,39 @@ class Orchestrator:
         """
         thread_id = thread_id or str(uuid4())
         brief = task if not data else f"{task}\n\nContext:\n{data}"
+        graph_input = {
+            "task": task,
+            "messages": [HumanMessage(content=brief)],
+            "data": data or {},
+            "current_agent": "",
+            "steps": 0,
+            "status": "running",
+        }
         try:
-            state = self.graph.invoke(
-                {
-                    "task": task,
-                    "messages": [HumanMessage(content=brief)],
-                    "data": data or {},
-                    "current_agent": "",
-                    "steps": 0,
-                    "status": "running",
-                },
-                config=_config(thread_id),
-            )
+            return self._invoke(graph_input, thread_id)
         except Exception as error:
             error.add_note(f"Resume this run with Orchestrator.resume({thread_id!r}).")
             raise
-        return _result(thread_id, state)
 
     def resume(self, thread_id: str) -> RunResult:
         """Finish a run that stopped part-way (crash, restart) from its last checkpoint."""
         config = _config(thread_id)
         if not self.graph.get_state(config).values:
             raise ValueError(f"no run with thread_id {thread_id!r}")
-        state = self.graph.invoke(None, config=config)
-        return _result(thread_id, state)
+        return self._invoke(None, thread_id)
+
+    def _invoke(self, graph_input: dict[str, Any] | None, thread_id: str) -> RunResult:
+        """Run the graph in one span, counting tokens across every model call."""
+        usage = UsageMetadataCallbackHandler()
+        config = _config(thread_id)
+        config["callbacks"] = [usage]
+        start = perf_counter()
+        with tracer.start_as_current_span("agent_template.run") as span:
+            state = self.graph.invoke(graph_input, config=config)
+        latency_ms = round((perf_counter() - start) * 1000)
+        span_context = span.get_span_context()
+        trace_id = format(span_context.trace_id, "032x") if span_context.is_valid else None
+        return _result(thread_id, state, usage.usage_metadata, latency_ms, trace_id)
 
     # -- graph construction -------------------------------------------------
 
@@ -233,7 +253,13 @@ def _config(thread_id: str) -> RunnableConfig:
     return {"configurable": {"thread_id": thread_id}}
 
 
-def _result(thread_id: str, state: dict[str, Any]) -> RunResult:
+def _result(
+    thread_id: str,
+    state: dict[str, Any],
+    usage: dict[str, UsageMetadata],
+    latency_ms: int,
+    trace_id: str | None,
+) -> RunResult:
     transcript = [
         {"agent": m.name or "user", "text": _text(m)}
         for m in state["messages"]
@@ -246,4 +272,10 @@ def _result(thread_id: str, state: dict[str, Any]) -> RunResult:
         output=_last_agent_text(state["messages"]),
         steps=state["steps"],
         transcript=transcript,
+        model_name=", ".join(usage) or None,
+        input_tokens=sum(tokens["input_tokens"] for tokens in usage.values()),
+        output_tokens=sum(tokens["output_tokens"] for tokens in usage.values()),
+        cost_usd=cost_usd(usage),
+        latency_ms=latency_ms,
+        trace_id=trace_id,
     )

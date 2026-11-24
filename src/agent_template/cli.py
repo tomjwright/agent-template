@@ -26,23 +26,25 @@ def cmd_run(args: argparse.Namespace) -> int:
     setup_tracing()
     orchestrator = _load_app(args.app)
     result = orchestrator.run(args.task, thread_id=args.thread_id)
-    run_id = RunStore().record(
-        app=args.app,
-        task=args.task,
-        output=result.output,
-        steps=result.steps,
-        transcript=result.transcript,
-    )
+    run_id = RunStore().record(args.app, result, user_id=args.user_id, tenant_id=args.tenant_id)
     print(result.output)
     log.info(
-        "run %s %s (%d steps, thread %s)", run_id, result.status, result.steps, result.thread_id
+        "run %s %s (%d steps, %d ms, %d+%d tokens, thread %s)",
+        run_id,
+        result.status,
+        result.steps,
+        result.latency_ms,
+        result.input_tokens,
+        result.output_tokens,
+        result.thread_id,
     )
     return 1 if result.status == "failed" else 0
 
 
 def cmd_history(args: argparse.Namespace) -> int:
     for row in RunStore().recent(args.limit):
-        print(f"[{row['id']}] {row['created_at'][:19]} {row['app']}: {row['task'][:60]}")
+        status = row["status"] or "-"
+        print(f"[{row['id']}] {row['created_at'][:19]} {status} {row['app']}: {row['task'][:60]}")
     return 0
 
 
@@ -56,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--thread-id", help="continue this conversation (needs DATABASE_URL to outlive a process)"
     )
+    run.add_argument("--user-id", help="who ran it, recorded with the run")
+    run.add_argument("--tenant-id", help="their organisation, recorded with the run")
     run.set_defaults(func=cmd_run)
 
     hist = sub.add_parser("history", help="list recent runs")

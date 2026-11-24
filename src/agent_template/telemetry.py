@@ -10,6 +10,7 @@ import logging
 import os
 from datetime import UTC, datetime
 
+from dotenv import load_dotenv
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -45,6 +46,7 @@ def setup_logging() -> None:
 
 
 def setup_tracing(service_name: str = "agent-template") -> None:
+    load_dotenv()
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return

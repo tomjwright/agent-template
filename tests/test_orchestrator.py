@@ -8,6 +8,7 @@ from conftest import FakeModel
 from langchain_core.exceptions import OutputParserException
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from opentelemetry.sdk.trace import TracerProvider
 from pydantic import Field, ValidationError
 
 import agent_template.orchestrator as orchestrator_module
@@ -261,3 +262,27 @@ def test_every_agent_turn_starts_from_a_user_role_message() -> None:
     assert model.last_messages[1].content == "ApplyAgent, over to you: apply to the best one"
     assert result.output == "applied"
     assert "over to you" not in model.seen_prompts[-1]
+
+
+def test_run_records_model_tokens_cost_and_latency() -> None:
+    reply = AIMessage(
+        content="done",
+        usage_metadata={"input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200},
+        response_metadata={"model_name": "claude-haiku-4-5-20251001"},
+    )
+    model = FakeModel(messages=iter([reply]))
+    model.routes = [Route(next="WorkerAgent", reason="work"), Route(next=FINISH, reason="done")]
+    result = Orchestrator([echo_agent("WorkerAgent")], model=model).run("do something")
+    assert result.model_name == "claude-haiku-4-5-20251001"
+    assert (result.input_tokens, result.output_tokens) == (1000, 200)
+    assert result.cost_usd == 0.002
+    assert result.latency_ms >= 0
+    assert result.trace_id is None  # tracing is not set up
+
+
+def test_run_trace_id_is_its_span_trace_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orchestrator_module, "tracer", TracerProvider().get_tracer("test"))
+    model = make_model(replies=[], routes=[Route(next=FINISH, reason="done")])
+    result = Orchestrator([echo_agent("WorkerAgent")], model=model).run("do something")
+    assert result.trace_id is not None
+    assert re.fullmatch(r"[0-9a-f]{32}", result.trace_id)
