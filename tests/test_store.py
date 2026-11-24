@@ -84,6 +84,12 @@ def test_recent_orders_newest_first(store: RunStore | PostgresRunStore) -> None:
     assert [r["task"] for r in store.recent()] == ["second", "first"]
 
 
+def test_negative_limit_lists_every_run(store: RunStore | PostgresRunStore) -> None:
+    store.record("app", run_result("first"))
+    store.record("app", run_result("second"))
+    assert len(store.recent(-1)) == 2
+
+
 def test_adds_telemetry_columns_to_an_older_table(tmp_path: Path) -> None:
     path = tmp_path / "runs.db"
     with sqlite3.connect(path) as conn:

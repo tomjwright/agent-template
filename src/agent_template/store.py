@@ -218,9 +218,11 @@ class PostgresRunStore:
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
         """The newest runs first, every column except the transcript."""
         with self.pool.connection() as conn:
-            rows = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT %s", (limit,))
+            # A negative limit means every run, as it does in SQLite.
+            rows = conn.execute(
+                "SELECT * FROM runs ORDER BY id DESC LIMIT %s", (limit if limit >= 0 else None,)
+            )
             runs = [dict(row) for row in rows]
         for run in runs:
             del run["transcript"]
-            run["created_at"] = run["created_at"].isoformat()
         return runs
