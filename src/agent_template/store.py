@@ -62,6 +62,9 @@ class RunStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
+            # Hold the write lock while checking columns, so two processes
+            # opening an older table don't both try to add the same column.
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(_SCHEMA)
             existing = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
             for name, column_type in _TELEMETRY_COLUMNS.items():

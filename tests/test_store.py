@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 from pathlib import Path
 
 from agent_template.orchestrator import RunResult
@@ -71,3 +72,27 @@ def test_adds_telemetry_columns_to_an_older_table(tmp_path: Path) -> None:
     old, new = reversed(store.recent())
     assert old["status"] is None
     assert new["status"] == "step_cap_hit"
+
+
+def test_processes_can_open_an_older_table_together(tmp_path: Path) -> None:
+    path = tmp_path / "runs.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, app TEXT NOT NULL,"
+            " task TEXT NOT NULL, output TEXT NOT NULL, steps INTEGER NOT NULL,"
+            " transcript TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+    errors: list[Exception] = []
+
+    def open_store() -> None:
+        try:
+            RunStore(path)
+        except Exception as error:
+            errors.append(error)
+
+    openers = [threading.Thread(target=open_store) for _ in range(8)]
+    for opener in openers:
+        opener.start()
+    for opener in openers:
+        opener.join()
+    assert errors == []
