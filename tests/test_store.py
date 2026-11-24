@@ -18,10 +18,16 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
 needs_postgres = pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL not set")
 
 
+def fresh_database() -> str:
+    """The URL of a new, empty scratch database, so no saved history is dropped."""
+    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as admin:
+        admin.execute("DROP DATABASE IF EXISTS run_store_test WITH (FORCE)")
+        admin.execute("CREATE DATABASE run_store_test")
+    return TEST_DATABASE_URL.rsplit("/", 1)[0] + "/run_store_test"
+
+
 def empty_postgres_store() -> PostgresRunStore:
-    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS runs")
-    return PostgresRunStore(TEST_DATABASE_URL)
+    return PostgresRunStore(fresh_database())
 
 
 @pytest.fixture(params=["sqlite", pytest.param("postgres", marks=needs_postgres)])
@@ -137,21 +143,21 @@ def test_postgres_with_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @needs_postgres
 def test_postgres_stores_the_transcript_as_json() -> None:
-    empty_postgres_store().record("app", run_result())
-    with psycopg.connect(TEST_DATABASE_URL) as conn:
+    url = fresh_database()
+    PostgresRunStore(url).record("app", run_result())
+    with psycopg.connect(url) as conn:
         row = conn.execute("SELECT transcript->0->>'text' FROM runs").fetchone()
     assert row == ("hi",)
 
 
 @needs_postgres
 def test_replicas_can_create_the_table_together() -> None:
-    with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as conn:
-        conn.execute("DROP TABLE IF EXISTS runs")
+    url = fresh_database()
     errors: list[Exception] = []
 
     def open_store() -> None:
         try:
-            PostgresRunStore(TEST_DATABASE_URL).pool.close()
+            PostgresRunStore(url).pool.close()
         except Exception as error:
             errors.append(error)
 
