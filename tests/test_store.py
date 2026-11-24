@@ -157,6 +157,15 @@ def test_postgres_stores_the_transcript_as_json() -> None:
 
 
 @needs_postgres
+def test_postgres_history_is_in_utc() -> None:
+    url = fresh_database() + "?options=-c%20TimeZone%3DAsia/Singapore"
+    store = PostgresRunStore(url)
+    store.record("app", run_result())
+    [row] = store.recent()
+    assert row["created_at"].endswith("+00:00")
+
+
+@needs_postgres
 def test_replicas_can_create_the_table_together() -> None:
     url = fresh_database()
     errors: list[Exception] = []

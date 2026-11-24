@@ -225,4 +225,6 @@ class PostgresRunStore:
             runs = [dict(row) for row in rows]
         for run in runs:
             del run["transcript"]
+            # Postgres returns the session's time zone; history is in UTC.
+            run["created_at"] = run["created_at"].astimezone(UTC).isoformat()
         return runs
