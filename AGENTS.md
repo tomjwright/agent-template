@@ -29,6 +29,7 @@ rm -rf mutants && uv run mutmut run --max-children 4 && uv run mutmut results --
 uv run pip-licenses --from=mixed --partial-match --allow-only "MIT;BSD;Apache;ISC;PSF;Python Software Foundation;MPL-2.0;Mozilla Public License 2.0;LGPL;GNU Lesser General Public License;Unlicense"
 uv run pre-commit run --all-files
 actionlint && zizmor --offline .github/workflows
+uvx --python 3.12 semgrep@1.187.0 scan --metrics=off --error --config p/python --config p/github-actions src examples .github
 ```
 
 ## Agent skills
