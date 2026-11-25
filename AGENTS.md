@@ -26,6 +26,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov    # fails below the coverage floor (statements and branches combined) in pyproject.toml
 uv run pre-commit run --all-files
+actionlint && zizmor --offline .github/workflows
 ```
 
 ## Agent skills
