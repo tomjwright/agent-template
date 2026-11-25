@@ -76,6 +76,26 @@ jobs:
       - name: Fail below 85% killed in any mutated file
         run: uv run mutmut results --all true | python3 scripts/mutation_floor.py 85
 
+  # The wheel is what users install: build it, install it into a clean venv with none of the
+  # dev tools, and run the CLI. Catches missing package files and imports of dev-only packages.
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+      - run: uv build --wheel
+      - run: uv venv "$RUNNER_TEMP/smoke"
+      - run: uv pip install --python "$RUNNER_TEMP/smoke/bin/python" dist/*.whl
+      - name: Run the installed CLI outside the repo
+        working-directory: ${{ runner.temp }}
+        env:
+          RUN_DB: ${{ runner.temp }}/runs.db
+        run: |
+          "$RUNNER_TEMP/smoke/bin/agent-template" --help
+          "$RUNNER_TEMP/smoke/bin/agent-template" history
+
   secrets-scan:
     runs-on: ubuntu-latest
     permissions:
