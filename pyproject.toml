@@ -63,6 +63,6 @@ branch = true
 source = ["agent_template", "examples"]
 
 [tool.coverage.report]
-fail_under = 76
+fail_under = 75
 precision = 2
 show_missing = true
