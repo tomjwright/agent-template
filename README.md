@@ -66,3 +66,19 @@ uv run pre-commit run --all-files
 
 See [AGENTS.md](AGENTS.md) for the workflow rules and [GLOSSARY.md](GLOSSARY.md)
 for the project's vocabulary.
+
+## Releasing
+
+Bump `version` in `pyproject.toml` in a PR. After it merges, tag that commit on `main` and
+push the tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`.github/workflows/release.yml` checks that the tag is on `main` and matches the version,
+builds the wheel and sdist once, installs the wheel and runs the CLI, writes `SHA256SUMS`, and
+publishes a GitHub Release with those files. With the repository variable
+`ATTESTATIONS_ENABLED=true` it also signs build provenance; verify a download with
+`gh attestation verify agent_template-0.2.0-py3-none-any.whl --repo tomjwright/agent-template`.
+Required reviewers on the `release` environment make each release wait for approval.
