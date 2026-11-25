@@ -21,6 +21,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mutmut==3.8.1",
     "mypy>=1.11",
     "pip-audit>=2.7",
     "pre-commit>=3.8",
@@ -66,3 +67,11 @@ source = ["agent_template", "examples"]
 fail_under = 75
 precision = 2
 show_missing = true
+
+[tool.mutmut]
+source_paths = [
+    "src/agent_template/orchestrator.py",
+    "src/agent_template/pricing.py",
+]
+pytest_add_cli_args_test_selection = ["tests/"]
+also_copy = ["src/agent_template/", "examples/"]
