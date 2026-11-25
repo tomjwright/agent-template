@@ -28,6 +28,7 @@ uv run pytest --cov    # fails below the coverage floor (statements and branches
 rm -rf mutants && uv run mutmut run --max-children 4 && uv run mutmut results --all true | python3 scripts/mutation_floor.py 85   # fresh run: mutmut keeps old scores when only tests change
 uv run pre-commit run --all-files
 actionlint && zizmor --offline .github/workflows
+uvx --python 3.12 semgrep@1.187.0 scan --metrics=off --error --config p/python --config p/github-actions src examples .github
 ```
 
 ## Agent skills

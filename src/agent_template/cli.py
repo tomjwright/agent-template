@@ -30,7 +30,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         args.app, result, user_id=args.user_id, tenant_id=args.tenant_id
     )
     print(result.output)
-    log.info(
+    # "tokens" here are LLM token counts, not credentials.
+    log.info(  # nosemgrep
         "run %s %s (%d steps, %d ms, %d+%d tokens, thread %s)",
         run_id,
         result.status,
