@@ -33,8 +33,8 @@ jobs:
         run: uv run pytest --cov
       - name: Audit dependencies for known vulnerabilities
         run: uv export --frozen --no-hashes --no-emit-project | uv run pip-audit --strict -r /dev/stdin
-      - name: Fail on GPL or AGPL dependencies, which the MIT licence cannot carry
-        run: uv run pip-licenses --from=mixed --fail-on "GPL-2.0-only;GPL-2.0-or-later;GPL-3.0-only;GPL-3.0-or-later;AGPL-3.0-only;AGPL-3.0-or-later;GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3"
+      - name: Fail on any licence outside this permissive list (GPL and AGPL are not on it)
+        run: uv run pip-licenses --from=mixed --partial-match --allow-only "MIT;BSD;Apache;ISC;PSF;Python Software Foundation;MPL-2.0;Mozilla Public License 2.0;LGPL;GNU Lesser General Public License;Unlicense"
 
   # The code must run on any machine: these catch paths and file handling that only work on Linux.
   test-other-os:
