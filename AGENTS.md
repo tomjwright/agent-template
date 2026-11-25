@@ -25,7 +25,7 @@ uv sync
 uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov    # fails below the coverage floor (statements and branches combined) in pyproject.toml
-uv run mutmut run --max-children 4 && uv run mutmut results --all true | python3 scripts/mutation_floor.py 85
+rm -rf mutants && uv run mutmut run --max-children 4 && uv run mutmut results --all true | python3 scripts/mutation_floor.py 85   # fresh run: mutmut keeps old scores when only tests change
 uv run pre-commit run --all-files
 actionlint && zizmor --offline .github/workflows
 ```
