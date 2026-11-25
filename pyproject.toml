@@ -25,6 +25,7 @@ dev = [
     "pip-audit>=2.7",
     "pre-commit>=3.8",
     "pytest>=8.3",
+    "pytest-cov>=6",
     "ruff>=0.6",
     "types-pyyaml>=6.0.12.20260906",
 ]
@@ -56,3 +57,12 @@ files = ["src", "examples"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["agent_template", "examples"]
+
+[tool.coverage.report]
+fail_under = 76
+precision = 2
+show_missing = true
