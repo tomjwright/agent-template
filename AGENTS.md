@@ -26,6 +26,7 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest --cov    # fails below the coverage floor (statements and branches combined) in pyproject.toml
 rm -rf mutants && uv run mutmut run --max-children 4 && uv run mutmut results --all true | python3 scripts/mutation_floor.py 85   # fresh run: mutmut keeps old scores when only tests change
+uv run pip-licenses --from=mixed --fail-on "GPL-2.0-only;GPL-2.0-or-later;GPL-3.0-only;GPL-3.0-or-later;AGPL-3.0-only;AGPL-3.0-or-later;GNU General Public License v2 (GPLv2);GNU General Public License v3 (GPLv3);GNU Affero General Public License v3"
 uv run pre-commit run --all-files
 actionlint && zizmor --offline .github/workflows
 ```
